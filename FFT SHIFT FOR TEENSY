@@ -1,0 +1,72 @@
+#include "Audio.h"
+#include "AudioStream_F32.h"
+#include "OpenAudio_ArduinoLibrary.h"
+#include "SerialManager_FreqShift_OA.h"
+#include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
+#include <SerialFlash.h>
+
+AudioInputI2S                 i2s1;   
+AudioOutputI2S                i2s2;  
+AudioConvert_I16toF32         cnvrt1;  // Convert to float
+AudioEffectFreqShiftFD_OA_F32 freqShift(audio_settings); // the frequency-domain processing block
+AudioEffectGain_F32           gain1;   //Applies digital gain to audio data.
+AudioConvert_F32toI16         cnvrt2;
+
+ 
+//Make all of the audio connections
+AudioConnection       patchCord1(i2s1,        0, cnvrt1, 0); 
+AudioConnection_F32   patchCord2(cnvrt1,       0, freqShift, 0);
+AudioConnection_F32   patchCord3(freqShift, 0, gain1, 0); // gain
+AudioConnection_F32   patchCord4(gain1,        0, cnvrt2, 0); //connect to the left output
+AudioConnection       patchCord6(cnvrt2,       0, i2s2, 1);
+AudioControlSGTL5000     sgtl5000_1;  
+ 
+
+
+
+//set the sample rate and block size
+const float sample_rate_Hz = 44000.f; ; // other frequencies in the table in AudioOutputI2S_F32 
+const int audio_block_samples = 128; 
+const int myInput = AUDIO_INPUT_MIC;
+
+//for freq domain processing, a power of 2: 16, 32, 64, 128
+AudioSettings_F32 audio_settings(sample_rate_Hz, audio_block_samples);
+
+
+//create audio library objects for handling the audio
+
+void setup() 
+
+
+ sgtl5000_1.enable();
+  sgtl5000_1.inputSelect(myInput);
+  sgtl5000_1.volume(0.8);
+  sgtl5000_1.lineInLevel(10, 10);
+sgtl5000_1.adcHighPassFilterDisable();
+
+ 
+void loop()
+
+  //  FFT parameters algorithm
+  int overlap_factor = 4;  //set to 2, 4 or 8...which yields 50%, 75%, or 87.5% overlap (8x)
+  int N_FFT = audio_block_samples * overlap_factor;  
+  Serial.print("    : N_FFT = "); Serial.println(N_FFT);
+  freqShift.setup(audio_settings, N_FFT); //do after AudioMemory_F32();
+
+  // frequency shifting
+  float shiftFreq_Hz = 750.0; //shift audio upward a bit
+  float Hz_per_bin = audio_settings.sample_rate_Hz / ((float)N_FFT);
+  int shift_bins = (int)(shiftFreq_Hz / Hz_per_bin + 0.5);  //round to nearest bin
+  
+  shiftFreq_Hz = shift_bins * Hz_per_bin;
+  Serial.print("Setting shift to "); Serial.print(shiftFreq_Hz);
+     Serial.print(" Hz, which is "); Serial.print(shift_bins); 
+     Serial.println(" bins");
+  freqShift.setShift_bins(shift_bins); //0 is no ffreq shifting.
+ 
+  //Enable the audioshield to hear
+  sgtl5000_1.enable();
+  sgtl5000_1.adcHighPassFilterEnable();  sgtl5000_1.inputSelect(AUDIO_INPUT_MIC);
+}
