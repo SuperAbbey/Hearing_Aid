@@ -1,0 +1,150 @@
+#include <AudioYA.h> // Checked UPLOAD ME!!!!
+#include "AudioStream_F32YA.h" // Source: https://github.com/chipaudette/OpenAudio_ArduinoLibrary
+#include "OpenAudio_ArduinoLibraryYA.h" // Do we need this? Source: https://github.com/chipaudette/OpenAudio_ArduinoLibrary
+#include "SerialManager_FreqShift_OAYA.h" // Source: https://github.com/chipaudette/OpenAudio_ArduinoLibrary
+#include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
+#include <SerialFlash.h>
+// Above are the libraries that we will be using. 
+
+
+bool                            stopLoop = false; // Will be used to ask the user for input only once rather repeat in the loop. 
+int                             Beginning; // This initializes our integer that will determine the beginning of the user's dead region. 
+float                           shiftFreq_Hz; // This initializes our float value that will determine the amount of frequency shift that will be done. 
+
+String                          Choice = ""; // This is a string that will take in the user's input, either "yes" or "no", to see if any of the previous inputs should be updated in the loop. 
+
+const float                     sample_rate_Hz = 44100.f; // Creates a float and assigns it the value 44100 which is the number of samples per second that are recorded and played back. Equivalent to CD quality. 
+const int                       audio_block_samples = 5512; // Creates an int assigning it the number of samples in an audio block, which is a group of samples that are processed together. 128 samples in one audio block. 
+AudioSettings_F32               audio_settings(sample_rate_Hz, audio_block_samples); // Stores the sample rate and audio block samples into the audio settings of the AudioSettings_F32 library. 
+float                           overlap_factor = 8.0; // Initializes the overlap factor which is the amount of overlap between audioclips. The greater the overlap will allow for a smoother transition between audio clips and will prevent artifacts (a.k.a noise) from seeping through. 
+float                           N_FFT = audio_block_samples * overlap_factor; // Equal to 1024 which is the number of bins in a sampling window. 
+float                           Hz_per_bin = audio_settings.sample_rate_Hz / ((float)N_FFT); // This results in ~43 Hz/bin which is the bin depth, or the range of frequencies that each bin contains. The lower the Hz/bin the better the results. But this is the maximum we can reach for now on this board. 
+
+//The code belows states the names for the components that we will be using.
+AudioInputI2S                   audioInput; // Our input, which is declared as the microphone later in the code. 
+AudioConvert_I16toF32           cnvrt1; // This converts integer values to float values. 
+AudioEffectFreqShiftFD_OA_F32   freqShift(audio_settings); // Initializes the settings for the frequency shift.  
+AudioEffectGain_F32             gain1; // Initializes the gain 
+AudioConvert_F32toI16           cnvrt2; // This converts float values back into integers. 
+AudioFilterBiquad               biquad1; // This is the biquad filter that contains the highpass filter. 
+//AudioFilterBiquad             biquad2;
+AudioOutputI2S                  audioOutput; // This declares our audio output which the Audio Shield automatically send to the audio jack.         
+AudioControlSGTL5000            audioShield; // This declares the audioShield so we can call on it and use its functions. 
+
+
+//This creates the audio connection. 
+AudioConnection                 patchCord1(audioInput, 0, biquad1, 0); // Our audio enters the high pass filter. 
+AudioConnection                 patchCord2(biquad1, 0, cnvrt1, 0); // The filtered audio then gets converted from integer values to float values. 
+AudioConnection_F32             patchCord3(cnvrt1, 0, freqShift, 0); // These new float values are then transposed/shifted in the frequency domain. 
+AudioConnection_F32             patchCord4(freqShift, 0, gain1, 0); // These shifted values then go through a gain to amplify the signal. 
+AudioConnection_F32             patchCord5(gain1, 0, cnvrt2, 0); // This amplified signal then gets converted from float values back to integers. 
+AudioConnection                 patchCord6(cnvrt2, 0, audioOutput, 0); // The new integer values are then sent to both channels of the output. 
+AudioConnection                 patchCord7(cnvrt2, 0, audioOutput, 1);
+
+void setup() {
+  Serial.begin(9600); // Intializes the communication between the computer and the board. 
+  delay(1000); // Gives the board 1000ms before continuing. 
+
+  AudioMemory(20); // Allocates memory for the audio shield. 
+  AudioMemory_F32(20, audio_settings); // Allocates memory for the AudioMemory_F32 library. 
+
+  audioShield.enable(); // Allows access to the audio shield. 
+  audioShield.inputSelect(AUDIO_INPUT_MIC); // Selects the soldered mic as the input. 
+  audioShield.micGain(35); // Sets the gain of the microphone. 
+  audioShield.adcHighPassFilterDisable(); 
+  audioShield.lineOutLevel(26, 26); 
+
+audioOutput.gain(0, 0.0);  
+audioOutput.gain(1, 1.0);  // default to hearing band-pass signal
+audioOutput.gain(2, 0.0);
+audioOutput.gain(3, 0.0);
+
+
+  
+
+//waveform.begin(AUDIO_INPUT_MIC);  //Code will know where to filter out
+ // waveform.amplitude(0.75);
+ // waveform.frequency(55);
+
+
+  
+//biquad1.frequency(65);
+ // biquad1.resonance(4.9); 
+  //Q ranges from 0.7 to 5.0. Resonance greater than 0.707 will amplify the signal near the corner frequency. 
+  //You must attenuate the signal before input to this filter, to prevent clipping.
+
+
+  
+
+  /*Serial.print("  : N_FFT = "); // Lets the user see the number of bins per sample window. 
+  Serial.println(N_FFT);*/
+  freqShift.setup(audio_settings, N_FFT);
+}
+
+void loop() {
+Serial.println("Test"); 
+if (stopLoop == false) { // This loop is needed so that it can ask the user only once for information. 
+  Serial.println("Beginning of Dead Region: "); // Asks the user to enter the beginning of the dead region. 
+  while(Serial.available() == 0) {} // Waits for the user to enter a value. 
+  Beginning = Serial.parseInt(); // Takes in the users value and stores it into the integer Beginning. 
+  Serial.print("Beginning of Dead Region is "); Serial.print(Beginning); Serial.println(" Hz."); // Lets the user know what they chose for the beginning of their dead region. 
+  Serial.println(); // Skips a line. Makes the serial monitor cleaner. 
+
+  Serial.println("Shift down by: 100, 300, 400, 700, 800, 1000, 1100, 2100"); // Asks the user to enter the amount of Hz by which they want to shift their region. 
+  while(Serial.available() ==0) {} // Waits for the user to enter a value. 
+  shiftFreq_Hz = Serial.parseFloat(); // Stores the users value into the float shiftFreq_Hz. 
+  shiftFreq_Hz *= -1; // The user will enter a positive value since the sentence already reads "shift down by" so this will convert it into an actual negative number. That way the user wouldn't have to type "Shift down by -100", its redundant. 
+  int shift_bins = (int)(shiftFreq_Hz / Hz_per_bin + 0.5); // Converts the shift that we want into bins, the 0.5 and the (int) components give us the closest bin to what we want since each bin has a depth of ~42 hz. 
+  shiftFreq_Hz = shift_bins * Hz_per_bin; // Converts it back into the closest amount of Hz by which we will shift down. 
+  Serial.print("Will shift down by "); // Lets the user know how much we will shift down. 
+  Serial.print(-1 * shiftFreq_Hz); Serial.println(" Hz."); // The "-1" is again used to prevent redundancy. Or else it would have read again "Shift down by -100 Hz". Would be saying the same thing twice. More of a grammatical choice. 
+  Serial.println(); // Skips a line. Makes the serial monitor cleaner. 
+
+  Serial.println("Is this correct? "); // Asks the user if the values they input are correct. 
+  while(Serial.available() == 0) {} // Waits for the users response. 
+  Choice = Serial.readString(); // Takes in the response and stores it into the string "Choice". 
+
+  if (Choice == "No" or Choice == "no") { // If the string is "no" or "No" then stopLoop continues to be "false" allowing the user to re-enter their information. 
+    stopLoop = false;
+  }
+
+  else {
+    stopLoop = true; // If the user inputs any other answer besides "no" or "No", such as "yes", then stopLoop becomes "true" meaning it won't have to repeat again. 
+    biquad1.setHighpass(0, Beginning, 0.707); // Enters the beginning of the user's Dead Region as the cut-off frequency for the high pass. 
+    freqShift.setShift_bins(shift_bins); // Takes in the amount of bins by which we want to shift and transposes it through the "freqShift" function. This does the bulk of the work. 
+  }
+}
+
+  int knob = analogRead(15); // Takes in values from the potentiometer. 
+  float vol = (float)knob / 204.6; // Takes in the knob value and stores it into the volume, we divide by 1023 so that the volume has a range from 0 - 1. 
+  audioShield.volume(vol); // Stores the volume into the Audio Shield. 
+  Serial.print("volume = "); // Prints out the volume for the user to read. 
+  Serial.println(vol);
+  delay(1000); // Prints out the volume every 1 second so that the user can see the change as they alter the potentiometer. 
+
+
+
+   
+  }
+
+
+ 
+
+int knob_2 = analogRead(A2);
+  // quick and dirty equation for exp scale frequency adjust
+  float freq =  expf((float)knob_2 / 150.0) * 10.0 + 80.0;
+  biquad1.frequency(freq);
+  Serial.print("frequency = ");
+  Serial.println(freq);
+  delay(100);
+  
+
+
+
+
+ 
+
+  
+}
