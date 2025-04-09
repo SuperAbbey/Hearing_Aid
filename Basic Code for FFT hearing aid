@@ -1,0 +1,51 @@
+#include <Audio.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
+#include <SerialFlash.h>
+
+// GUItool: begin automatically generated code
+AudioInputI2S            i2s1;           //xy=213,190
+AudioOutputI2S           i2s2;           //xy=542,192
+AudioConnection          patchCord1(i2s1, 0, i2s2, 0);
+AudioConnection          patchCord2(i2s1, 0, i2s2, 1);
+AudioControlSGTL5000     sgtl5000_1;     //xy=345,340
+// GUItool: end automatically generated code
+
+const int myInput = AUDIO_INPUT_MIC;
+
+void setup() {
+  Serial.begin(115200);   //for debugging messages later
+  delay(500);
+  Serial.println("Teensy Hearing Aid: BasicGain...");
+
+  AudioMemory(20);
+
+  sgtl5000_1.enable();
+  sgtl5000_1.inputSelect(myInput);
+  sgtl5000_1.lineInLevel(10, 10);
+  sgtl5000_1.adcHighPassFilterDisable();  //reduce noise.
+}
+
+
+// define the loop() function, the function that is repeated over and over
+// for the life of the device
+unsigned long updatePeriod_millis = 100; //how many milliseconds between updating gain reading?
+unsigned long lastUpdate_millis = 0;
+unsigned long curTime_millis = 0;
+int prev_gain_dB = 0;
+void loop() {
+  //float val = float(analogRead(15)) / 1024.0; //0.0 to 1.0
+  //val = 0.1(float)((int)(10.0val + 0.5));  //quantize so that it doesn't chatter
+
+  //compute desired digital gain
+  //const float min_gain_dB = -20.0, max_gain_dB = 50.0; //set desired gain range
+  //float gain_dB = min_gain_dB + (max_gain_dB - min_gain_dB)*val; //computed desired gain value in dB
+
+  int knob = analogRead(15);
+  float vol = (float)knob / 1280.0; 
+  sgtl5000_1.volume(vol);
+  Serial.print("vol = ");
+  Serial.println(vol);
+  delay(500);
+  }
